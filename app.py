@@ -206,16 +206,15 @@ def main():
             else:
                 with st.spinner("Fetching transcript..."):
                     transcript_data = get_youtube_transcript(video_id, language_code)
-                # Ensure we have JSON transcript data.
+                # If transcript_data is not a list, create a dummy list with a single entry.
                 if not isinstance(transcript_data, list):
-                    st.error("Expected transcript data in JSON format; detailed summary cannot be generated.")
-                    return
+                    transcript_data = [{"start": 0, "text": transcript_data}]
+                
                 # Combine the full transcript text.
                 full_transcript = " ".join([entry["text"] for entry in transcript_data])
                 
                 # Generate a detailed summary from the AI.
                 system_prompt = "You are an AI summarization assistant."
-                # Instruct the AI to divide the summary into sections.
                 user_prompt = (
                     f"Please generate a detailed summary of the following YouTube transcript in {language}.\n"
                     f"Divide the summary into sections. Each section should begin with a timestamp in hh:mm:ss format "
@@ -238,16 +237,12 @@ def main():
                 st.success("Detailed summary generated successfully!")
                 
                 # Store detailed summary sections in session state.
-                if "detailed_summaries" not in st.session_state:
-                    st.session_state["detailed_summaries"] = sections
-                else:
-                    st.session_state["detailed_summaries"] = sections  # refresh with new output
+                st.session_state["detailed_summaries"] = sections
                 
                 with col2:
                     st.header("Detailed Summary Output")
                     for idx, section in enumerate(st.session_state["detailed_summaries"]):
                         with st.container():
-                            # Create hyperlink header with timestamp.
                             ts = section["timestamp"]
                             section_start_sec = hhmmss_to_seconds(ts)
                             section_url = f"https://www.youtube.com/watch?v={video_id}&t={section_start_sec}s"
@@ -260,7 +255,6 @@ def main():
                                 st.success("Section summary updated!")
                             
                             # Determine transcript entries for this section.
-                            # Use the current section's start and next section's start (if available).
                             current_start = section_start_sec
                             next_start = None
                             if idx + 1 < len(st.session_state["detailed_summaries"]):
