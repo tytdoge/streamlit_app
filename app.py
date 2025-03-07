@@ -60,20 +60,27 @@ def extract_video_id(url: str) -> str:
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
-def get_youtube_transcript(video_id: str) -> str:
-    """
-    Retrieves the transcript of a YouTube video using its video ID.
-    """
+def get_youtube_transcript(video_id, language_code):
+    # Build the proxy URL with the provided parameters.
+    proxy_api_url = f"https://yt.vl.comp.polyu.edu.hk/transcript?password=for_demo&video_id={video_id}&lang={language_code}"
+    response = requests.get(proxy_api_url)
+    
+    if response.status_code != 200:
+        return f"Error fetching transcript: HTTP {response.status_code}"
+    
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-        transcript = " ".join([entry["text"] for entry in transcript_list])
+        transcript_data = response.json()
+        transcript = " ".join([entry["text"] for entry in transcript_data])
         return transcript
     except Exception as e:
-        return f"Error fetching transcript: {str(e)}"
+        # If JSON parsing fails, fallback to returning the raw text.
+        return response.text
+
 
 def main():
     st.title("YouTube Video Summary Generator")
     st.write("Enter a YouTube URL to generate a summary of the video's transcript.")
+    
 
     # Two-column layout: left for inputs, right for output.
     col1, col2 = st.columns(2)
@@ -84,6 +91,20 @@ def main():
                                 ["English", "Spanish", "French", "German", "Traditional Chinese"])
         api_provider = st.selectbox("Select API Provider:", ["GitHub Model", "Openrouter"])
         generate_button = st.button("Generate Summary")
+    video_id = extract_video_id(youtube_url)
+    # Map the selected language to a language code required by the proxy API.
+    language_map = {
+    "English": "en",
+    "Spanish": "es",
+    "French": "fr",
+    "German": "de",
+    "Traditional Chinese": "zh-TW"
+    }
+
+    language_code = language_map.get(language, "en")
+
+
+    
         
     with col2:
         st.header("Summary Output")
@@ -105,7 +126,7 @@ def main():
                 st.error("Could not extract a video ID from the URL. Please check the URL format.")
             else:
                 with st.spinner("Fetching transcript..."):
-                    transcript = get_youtube_transcript(video_id)
+                    transcript = get_youtube_transcript(video_id,language_code)
                 if transcript.startswith("Error"):
                     st.error(transcript)
                 else:
