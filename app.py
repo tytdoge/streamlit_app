@@ -178,7 +178,7 @@ def main():
                 with st.spinner("Fetching transcript..."):
                     transcript_data = get_youtube_transcript(video_id, language_code)
                     if isinstance(transcript_data, list):
-                        transcript = " ".join([entry["text"] for entry in transcript_data])
+                        transcript = " ".join([str(entry.get("text", "")) for entry in transcript_data])
                     else:
                         transcript = transcript_data
                 if transcript.startswith("Error"):
@@ -209,7 +209,8 @@ def main():
         # If transcript_data is not a list, wrap it in a dummy list.
         if not isinstance(transcript_data, list):
             transcript_data = [{"start": 0, "text": transcript_data}]
-        full_transcript = " ".join([entry["text"] for entry in transcript_data])
+        # Combine the full transcript text.
+        full_transcript = " ".join([str(entry.get("text", "")) for entry in transcript_data])
         
         # Generate a detailed summary from the AI (the summary is divided into sections).
         system_prompt = "You are an AI summarization assistant."
