@@ -76,7 +76,7 @@ def get_youtube_transcript(video_id, language_code):
         # If JSON parsing works, return the data.
         return transcript_data
     except Exception as e:
-        # Fallback: if JSON parsing fails, return the raw text.
+        # If JSON parsing fails, fallback to returning the raw text.
         return response.text
 
 
@@ -102,11 +102,10 @@ def segment_transcript(transcript_data, segment_duration=120):
     current_section = []
     current_start = None
     for entry in transcript_data:
-        # Get the start time from the entry; default to 0 if not present.
+        # Each entry is expected to be a dict with a "start" key.
         start = entry.get("start", 0)
         if current_start is None:
             current_start = start
-        # If the difference exceeds segment_duration, finalize the current section.
         if start - current_start >= segment_duration:
             if current_section:
                 sections.append({"start": current_start, "entries": current_section})
@@ -155,11 +154,11 @@ def main():
             else:
                 with st.spinner("Fetching transcript..."):
                     transcript_data = get_youtube_transcript(video_id, language_code)
-                    # If transcript_data is a string (error or raw text), wrap it in a list.
-                    if isinstance(transcript_data, str):
-                        transcript = transcript_data
-                    else:
+                    # If transcript_data is a list, combine the texts.
+                    if isinstance(transcript_data, list):
                         transcript = " ".join([entry["text"] for entry in transcript_data])
+                    else:
+                        transcript = transcript_data
                 if transcript.startswith("Error"):
                     st.error(transcript)
                 else:
@@ -185,9 +184,10 @@ def main():
             else:
                 with st.spinner("Fetching transcript..."):
                     transcript_data = get_youtube_transcript(video_id, language_code)
-                    if isinstance(transcript_data, str):
-                        st.error("Expected transcript data in JSON format, but got raw text.")
-                        return
+                # Detailed summary requires JSON data (a list of transcript entries).
+                if isinstance(transcript_data, str):
+                    st.error("Expected transcript data in JSON format, but got raw text. Detailed summary cannot be generated.")
+                    return
                 try:
                     sections = segment_transcript(transcript_data, segment_duration=120)
                 except Exception as e:
