@@ -209,15 +209,14 @@ def main():
         # If transcript_data is not a list, wrap it in a dummy list.
         if not isinstance(transcript_data, list):
             transcript_data = [{"start": 0, "text": transcript_data}]
-        # Combine the full transcript text.
         full_transcript = " ".join([str(entry.get("text", "")) for entry in transcript_data])
         
-        # Generate a detailed summary from the AI (the summary is divided into sections).
+        # Revised prompt with an explicit example format.
         system_prompt = "You are an AI summarization assistant."
         user_prompt = (
             f"Please generate a detailed summary of the following YouTube transcript in {language}.\n"
-            f"Divide the summary into sections. Each section should begin with a timestamp in hh:mm:ss format "
-            f"indicating the start time in the video, followed by a dash and a section title, then the summary text.\n\n"
+            f"Divide the summary into sections. Each section must start on a new line with a timestamp in hh:mm:ss format, followed by a dash, then a section title, a colon, and then the summary text. For example:\n"
+            f"00:00:05 - Introduction: This section explains the video introduction...\n\n"
             f"Transcript:\n{full_transcript}"
         )
         try:
@@ -232,6 +231,8 @@ def main():
         sections = segment_summary(detailed_summary_text)
         if not sections:
             st.error("Failed to parse detailed summary into sections.")
+            st.write("Detailed summary output received:")
+            st.text(detailed_summary_text)
             return
         st.success("Detailed summary generated successfully!")
         
