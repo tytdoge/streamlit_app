@@ -49,7 +49,7 @@ def answer(system_prompt, user_prompt, model_type="github"):
 def extract_video_id(url: str) -> str:
     """
     Extracts the YouTube video ID from a URL.
-    Expects URL formats like:
+    Expected URL formats:
     'https://www.youtube.com/watch?v=VIDEO_ID' or 'https://youtu.be/VIDEO_ID'
     """
     pattern = r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})"
@@ -73,7 +73,6 @@ def get_youtube_transcript(video_id, language_code):
     
     try:
         transcript_data = response.json()
-        # If JSON parsing works, return the data.
         return transcript_data
     except Exception as e:
         # If JSON parsing fails, fallback to returning the raw text.
@@ -90,32 +89,56 @@ def seconds_to_hhmmss(seconds):
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def segment_transcript(transcript_data, segment_duration=120):
+def hhmmss_to_seconds(hhmmss: str) -> int:
     """
-    Segment transcript entries into sections based on a given segment duration (in seconds).
-    Assumes each entry in transcript_data is a dict with a "start" key.
-    Returns a list of sections where each section is a dict with:
-      - "start": the start time of the section (in seconds)
-      - "entries": list of transcript entries for the section
+    Convert hh:mm:ss string to seconds.
     """
+    parts = hhmmss.split(":")
+    if len(parts) != 3:
+        return 0
+    return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+
+
+def segment_summary(summary_text):
+    """
+    Parses the AI-generated detailed summary into sections.
+    Each section is expected to start with a line like:
+      "hh:mm:ss - Section Title: ..."
+    Returns a list of sections (dicts with keys "timestamp" and "summary").
+    """
+    pattern = re.compile(r"^(\d{2}:\d{2}:\d{2})\s*-\s*(.*)$")
     sections = []
-    current_section = []
-    current_start = None
-    for entry in transcript_data:
-        # Each entry is expected to be a dict with a "start" key.
-        start = entry.get("start", 0)
-        if current_start is None:
-            current_start = start
-        if start - current_start >= segment_duration:
-            if current_section:
-                sections.append({"start": current_start, "entries": current_section})
-            current_section = [entry]
-            current_start = start
+    current_section = None
+    for line in summary_text.splitlines():
+        match = pattern.match(line)
+        if match:
+            if current_section is not None:
+                sections.append(current_section)
+            current_section = {
+                "timestamp": match.group(1),
+                "summary": match.group(2).strip()
+            }
         else:
-            current_section.append(entry)
-    if current_section:
-        sections.append({"start": current_start, "entries": current_section})
+            if current_section is not None:
+                current_section["summary"] += "\n" + line.strip()
+    if current_section is not None:
+        sections.append(current_section)
     return sections
+
+
+def filter_transcript_entries(transcript_data, start_sec, end_sec=None):
+    """
+    Filters the transcript entries (list of dicts) to include those that have
+    a "start" value >= start_sec and, if end_sec is provided, < end_sec.
+    Returns a string that concatenates the entries with their timestamps.
+    """
+    filtered = []
+    for entry in transcript_data:
+        entry_start = entry.get("start", 0)
+        if entry_start >= start_sec and (end_sec is None or entry_start < end_sec):
+            ts = seconds_to_hhmmss(entry_start)
+            filtered.append(f"[{ts}] {entry.get('text', '')}")
+    return "\n".join(filtered)
 
 
 def main():
@@ -154,7 +177,6 @@ def main():
             else:
                 with st.spinner("Fetching transcript..."):
                     transcript_data = get_youtube_transcript(video_id, language_code)
-                    # If transcript_data is a list, combine the texts.
                     if isinstance(transcript_data, list):
                         transcript = " ".join([entry["text"] for entry in transcript_data])
                     else:
@@ -173,7 +195,7 @@ def main():
                     except Exception as e:
                         st.error(f"Error during API call: {e}")
     
-    # Detailed summary generation with sections.
+    # Detailed summary generation (segmenting the AI summary into sections)
     if generate_detail_button:
         if not youtube_url:
             st.error("Please enter a valid YouTube URL.")
@@ -184,45 +206,52 @@ def main():
             else:
                 with st.spinner("Fetching transcript..."):
                     transcript_data = get_youtube_transcript(video_id, language_code)
-                # Detailed summary requires JSON data (a list of transcript entries).
-                if isinstance(transcript_data, str):
-                    st.error("Expected transcript data in JSON format, but got raw text. Detailed summary cannot be generated.")
+                # Ensure we have JSON transcript data.
+                if not isinstance(transcript_data, list):
+                    st.error("Expected transcript data in JSON format; detailed summary cannot be generated.")
                     return
-                try:
-                    sections = segment_transcript(transcript_data, segment_duration=120)
-                except Exception as e:
-                    st.error(f"Error segmenting transcript: {e}")
-                    return
-                st.success("Transcript fetched and segmented successfully!")
+                # Combine the full transcript text.
+                full_transcript = " ".join([entry["text"] for entry in transcript_data])
                 
-                # Initialize session state to hold detailed summaries.
+                # Generate a detailed summary from the AI.
+                system_prompt = "You are an AI summarization assistant."
+                # Instruct the AI to divide the summary into sections.
+                user_prompt = (
+                    f"Please generate a detailed summary of the following YouTube transcript in {language}.\n"
+                    f"Divide the summary into sections. Each section should begin with a timestamp in hh:mm:ss format "
+                    f"indicating the start time in the video, followed by a dash and a section title, then the summary text.\n\n"
+                    f"Transcript:\n{full_transcript}"
+                )
+                try:
+                    with st.spinner("Generating detailed summary..."):
+                        model_type = "github" if api_provider == "GitHub Model" else "openrouter"
+                        detailed_summary_text = answer(system_prompt, user_prompt, model_type=model_type)
+                except Exception as e:
+                    st.error(f"Error during API call: {e}")
+                    return
+
+                # Parse the detailed summary into sections.
+                sections = segment_summary(detailed_summary_text)
+                if not sections:
+                    st.error("Failed to parse detailed summary into sections.")
+                    return
+                st.success("Detailed summary generated successfully!")
+                
+                # Store detailed summary sections in session state.
                 if "detailed_summaries" not in st.session_state:
-                    st.session_state["detailed_summaries"] = []
-                    system_prompt = "You are an AI summarization assistant."
-                    for section in sections:
-                        section_start = section["start"]
-                        hhmmss = seconds_to_hhmmss(section_start)
-                        section_transcript = " ".join([entry["text"] for entry in section["entries"]])
-                        user_prompt = f"Please summarize the following section of a YouTube transcript starting at {hhmmss} in {language}:\n\n{section_transcript}"
-                        try:
-                            model_type = "github" if api_provider == "GitHub Model" else "openrouter"
-                            section_summary = answer(system_prompt, user_prompt, model_type=model_type)
-                        except Exception as e:
-                            section_summary = f"Error generating summary: {e}"
-                        st.session_state["detailed_summaries"].append({
-                            "start": section_start,
-                            "hhmmss": hhmmss,
-                            "transcript": section_transcript,
-                            "summary": section_summary
-                        })
+                    st.session_state["detailed_summaries"] = sections
+                else:
+                    st.session_state["detailed_summaries"] = sections  # refresh with new output
                 
                 with col2:
                     st.header("Detailed Summary Output")
                     for idx, section in enumerate(st.session_state["detailed_summaries"]):
                         with st.container():
-                            # Create a hyperlink header with timestamp.
-                            section_url = f"https://www.youtube.com/watch?v={video_id}&t={int(section['start'])}s"
-                            st.markdown(f"### [Section starting at {section['hhmmss']}]({section_url})")
+                            # Create hyperlink header with timestamp.
+                            ts = section["timestamp"]
+                            section_start_sec = hhmmss_to_seconds(ts)
+                            section_url = f"https://www.youtube.com/watch?v={video_id}&t={section_start_sec}s"
+                            st.markdown(f"### [Section starting at {ts}]({section_url})")
                             
                             # Editable summary text area.
                             new_summary = st.text_area(f"Section {idx+1} Summary", section["summary"], key=f"summary_{idx}")
@@ -230,17 +259,23 @@ def main():
                                 st.session_state["detailed_summaries"][idx]["summary"] = new_summary
                                 st.success("Section summary updated!")
                             
-                            # Expander to show the transcript with timestamps.
+                            # Determine transcript entries for this section.
+                            # Use the current section's start and next section's start (if available).
+                            current_start = section_start_sec
+                            next_start = None
+                            if idx + 1 < len(st.session_state["detailed_summaries"]):
+                                next_ts = st.session_state["detailed_summaries"][idx+1]["timestamp"]
+                                next_start = hhmmss_to_seconds(next_ts)
+                            transcript_section = filter_transcript_entries(transcript_data, current_start, next_start)
+                            
                             with st.expander("Show transcript"):
-                                for entry in sections[idx]["entries"]:
-                                    ts = seconds_to_hhmmss(entry.get("start", 0))
-                                    st.write(f"[{ts}] {entry.get('text', '')}")
+                                st.text_area("Transcript", transcript_section, height=150)
                             
                             # Buttons for additional summary adjustments.
                             btn_cols = st.columns(3)
                             with btn_cols[0]:
                                 if st.button("More details", key=f"more_details_{idx}"):
-                                    prompt = f"Please provide a more detailed summary for the following transcript section starting at {section['hhmmss']}:\n\n{section['transcript']}"
+                                    prompt = f"Please provide a more detailed summary for the following transcript section starting at {ts}:\n\n{transcript_section}"
                                     try:
                                         new_detail = answer(system_prompt, prompt, model_type=("github" if api_provider=="GitHub Model" else "openrouter"))
                                         st.session_state["detailed_summaries"][idx]["summary"] = new_detail
@@ -249,7 +284,7 @@ def main():
                                         st.error(f"Error: {e}")
                             with btn_cols[1]:
                                 if st.button("More concise", key=f"more_concise_{idx}"):
-                                    prompt = f"Please provide a more concise summary for the following transcript section starting at {section['hhmmss']}:\n\n{section['transcript']}"
+                                    prompt = f"Please provide a more concise summary for the following transcript section starting at {ts}:\n\n{transcript_section}"
                                     try:
                                         new_concise = answer(system_prompt, prompt, model_type=("github" if api_provider=="GitHub Model" else "openrouter"))
                                         st.session_state["detailed_summaries"][idx]["summary"] = new_concise
@@ -258,7 +293,7 @@ def main():
                                         st.error(f"Error: {e}")
                             with btn_cols[2]:
                                 if st.button("More fun", key=f"more_fun_{idx}"):
-                                    prompt = f"Please make the following summary more fun with emojis for the transcript section starting at {section['hhmmss']}:\n\n{section['transcript']}"
+                                    prompt = f"Please make the following summary more fun with emojis for the transcript section starting at {ts}:\n\n{transcript_section}"
                                     try:
                                         new_fun = answer(system_prompt, prompt, model_type=("github" if api_provider=="GitHub Model" else "openrouter"))
                                         st.session_state["detailed_summaries"][idx]["summary"] = new_fun
@@ -269,8 +304,9 @@ def main():
                     # Download button: generate an HTML version of the detailed summary.
                     html_content = "<html><body>"
                     for section in st.session_state["detailed_summaries"]:
-                        section_url = f"https://www.youtube.com/watch?v={video_id}&t={int(section['start'])}s"
-                        html_content += f"<h3><a href='{section_url}'>Section starting at {section['hhmmss']}</a></h3>"
+                        section_start_sec = hhmmss_to_seconds(section["timestamp"])
+                        section_url = f"https://www.youtube.com/watch?v={video_id}&t={section_start_sec}s"
+                        html_content += f"<h3><a href='{section_url}'>Section starting at {section['timestamp']}</a></h3>"
                         html_content += f"<p>{section['summary']}</p>"
                     html_content += "</body></html>"
                     st.download_button("Download Summary as HTML", data=html_content, file_name="detailed_summary.html", mime="text/html")
