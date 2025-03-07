@@ -263,7 +263,7 @@ def main():
                     transcript_section = filter_transcript_entries(transcript_data, start_sec, next_start)
                     
                     with st.expander("Show transcript"):
-                        st.text_area("Transcript", transcript_section, height=150)
+                        st.text_area("Transcript", transcript_section, height=150, key=f"transcript_{idx}")
                     
                     # Buttons for additional summary adjustments.
                     btn_cols = st.columns(3)
