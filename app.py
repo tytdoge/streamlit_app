@@ -6,10 +6,10 @@ import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 
 # Load API keys and model names from environment variables.
-GITHUB_API_KEY = os.getenv("GITHUB_API_KEY")
-GITHUB_API_MODEL_NAME = os.getenv("GITHUB_API_MODEL_NAME")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_API_MODEL_NAME = os.getenv("OPENROUTER_API_MODEL_NAME")
+GITHUB_API_KEY = st.secrets.get("GITHUB_API_KEY") 
+GITHUB_API_MODEL_NAME = st.secret.get("GITHUB_API_MODEL_NAME")
+OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY")
+OPENROUTER_API_MODEL_NAME = st.secrets.get("OPENROUTER_API_MODEL_NAME")
 
 import streamlit as st
 import os
